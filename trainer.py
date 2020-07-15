@@ -1,13 +1,13 @@
 import time
 
 import numpy
-import ray
+# import ray
 import torch
 
 import models
 
 
-@ray.remote
+# @ray.remote
 class Trainer:
     """
     Class which run in a dedicated thread to train a neural network and save it
@@ -48,14 +48,15 @@ class Trainer:
 
     def continuous_update_weights(self, replay_buffer, shared_storage_worker):
         # Wait for the replay buffer to be filled
-        while ray.get(replay_buffer.get_self_play_count.remote()) < 1:
+        # while ray.get(replay_buffer.get_self_play_count.remote()) < 1:
+        while replay_buffer.get_self_play_count() < 1:
             time.sleep(0.1)
 
         # Training loop
         while True:
-            index_batch, batch = ray.get(
-                replay_buffer.get_batch.remote(self.model.get_weights())
-            )
+            # index_batch, batch = 
+            #     ray.get(replay_buffer.get_batch.remote(self.model.get_weights()))
+            index_batch, batch = replay_buffer.get_batch(self.model.get_weights())
             self.update_lr()
             (
                 priorities,
@@ -67,26 +68,36 @@ class Trainer:
 
             if self.config.PER:
                 # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
-                replay_buffer.update_priorities.remote(priorities, index_batch)
+                # replay_buffer.update_priorities.remote(priorities, index_batch)
+                replay_buffer.update_priorities(priorities, index_batch)
 
             # Save to the shared storage
+            # if self.training_step % self.config.checkpoint_interval == 0:
+            #     shared_storage_worker.set_weights.remote(self.model.get_weights())
             if self.training_step % self.config.checkpoint_interval == 0:
-                shared_storage_worker.set_weights.remote(self.model.get_weights())
-            shared_storage_worker.set_info.remote("training_step", self.training_step)
-            shared_storage_worker.set_info.remote(
+                shared_storage_worker.set_weights(self.model.get_weights())
+            # shared_storage_worker.set_info.remote("training_step", self.training_step)
+            shared_storage_worker.set_info("training_step", self.training_step)
+            # shared_storage_worker.set_info.remote(
+            shared_storage_worker.set_info(
                 "lr", self.optimizer.param_groups[0]["lr"]
             )
-            shared_storage_worker.set_info.remote("total_loss", total_loss)
-            shared_storage_worker.set_info.remote("value_loss", value_loss)
-            shared_storage_worker.set_info.remote("reward_loss", reward_loss)
-            shared_storage_worker.set_info.remote("policy_loss", policy_loss)
+            # shared_storage_worker.set_info.remote("total_loss", total_loss)
+            # shared_storage_worker.set_info.remote("value_loss", value_loss)
+            # shared_storage_worker.set_info.remote("reward_loss", reward_loss)
+            # shared_storage_worker.set_info.remote("policy_loss", policy_loss)
+            shared_storage_worker.set_info("total_loss", total_loss)
+            shared_storage_worker.set_info("value_loss", value_loss)
+            shared_storage_worker.set_info("reward_loss", reward_loss)
+            shared_storage_worker.set_info("policy_loss", policy_loss)
 
             # Managing the self-play / training ratio
             if self.config.training_delay:
                 time.sleep(self.config.training_delay)
             if self.config.ratio:
                 while (
-                    ray.get(replay_buffer.get_self_play_count.remote())
+                    # ray.get(replay_buffer.get_self_play_count.remote())
+                    replay_buffer.get_self_play_count()
                     / max(1, self.training_step)
                     < self.config.ratio
                 ):

@@ -2,13 +2,13 @@ import collections
 import copy
 
 import numpy
-import ray
+# import ray
 import torch
 
 import models
 
 
-@ray.remote
+# @ray.remote
 class ReplayBuffer:
     """
     Class which run in a dedicated thread to store played games and generate batch.

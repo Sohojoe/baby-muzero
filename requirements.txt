@@ -1,7 +1,7 @@
 numpy
-torch
+# torch
 tensorboard
 gym
 box2d-py
-ray
+# ray
 seaborn

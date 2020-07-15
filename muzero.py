@@ -5,7 +5,7 @@ import pickle
 import time
 
 import numpy
-import ray
+# import ray
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -56,28 +56,35 @@ class MuZero:
         self.replay_buffer = None
 
     def train(self):
-        ray.init()
+        # ray.init()
         os.makedirs(self.config.results_path, exist_ok=True)
 
         # Initialize workers
-        training_worker = trainer.Trainer.options(
-            num_gpus=1 if "cuda" in self.config.training_device else 0
-        ).remote(copy.deepcopy(self.muzero_weights), self.config)
-        shared_storage_worker = shared_storage.SharedStorage.remote(
+        # training_worker = trainer.Trainer.options(
+        #     num_gpus=1 if "cuda" in self.config.training_device else 0
+        # ).remote(copy.deepcopy(self.muzero_weights), self.config)
+        training_worker = trainer.Trainer(copy.deepcopy(self.muzero_weights), self.config)
+        # shared_storage_worker = shared_storage.SharedStorage.remote(
+        #     copy.deepcopy(self.muzero_weights), self.game_name, self.config,
+        # )
+        shared_storage_worker = shared_storage.SharedStorage(
             copy.deepcopy(self.muzero_weights), self.game_name, self.config,
         )
-        replay_buffer_worker = replay_buffer.ReplayBuffer.remote(self.config)
+        # replay_buffer_worker = replay_buffer.ReplayBuffer.remote(self.config)
+        replay_buffer_worker = replay_buffer.ReplayBuffer(self.config)
         # Pre-load buffer if pulling from persistent storage
         if self.replay_buffer:
             for game_history_id in self.replay_buffer:
-                replay_buffer_worker.save_game.remote(
+                # replay_buffer_worker.save_game.remote(
+                replay_buffer_worker.save_game(
                     self.replay_buffer[game_history_id]
                 )
             print(
                 "\nLoaded {} games from replay buffer.".format(len(self.replay_buffer))
             )
         self_play_workers = [
-            self_play.SelfPlay.remote(
+            # self_play.SelfPlay.remote(
+            self_play.SelfPlay(
                 copy.deepcopy(self.muzero_weights),
                 self.Game(self.config.seed + seed),
                 self.config,
@@ -87,20 +94,24 @@ class MuZero:
 
         # Launch workers
         [
-            self_play_worker.continuous_self_play.remote(
+            # self_play_worker.continuous_self_play.remote(
+            self_play_worker.continuous_self_play(
                 shared_storage_worker, replay_buffer_worker
             )
             for self_play_worker in self_play_workers
         ]
-        training_worker.continuous_update_weights.remote(
+        # training_worker.continuous_update_weights.remote(
+        training_worker.continuous_update_weights(
             replay_buffer_worker, shared_storage_worker
         )
 
         # Save performance in TensorBoard
         self._logging_loop(shared_storage_worker, replay_buffer_worker)
 
-        self.muzero_weights = ray.get(shared_storage_worker.get_weights.remote())
-        self.replay_buffer = ray.get(replay_buffer_worker.get_buffer.remote())
+        # self.muzero_weights = ray.get(shared_storage_worker.get_weights.remote())
+        self.muzero_weights = shared_storage_worker.get_weights()
+        # self.replay_buffer = ray.get(replay_buffer_worker.get_buffer.remote())
+        self.replay_buffer = replay_buffer_worker.get_buffer()
         # Persist replay buffer to disk
         print("\n\nPersisting replay buffer games to disk...")
         pickle.dump(
@@ -108,19 +119,21 @@ class MuZero:
             open(os.path.join(self.config.results_path, "replay_buffer.pkl"), "wb"),
         )
         # End running actors
-        ray.shutdown()
+        # ray.shutdown()
 
     def _logging_loop(self, shared_storage_worker, replay_buffer_worker):
         """
         Keep track of the training performance
         """
         # Launch the test worker to get performance metrics
-        test_worker = self_play.SelfPlay.remote(
+        # test_worker = self_play.SelfPlay.remote(
+        test_worker = self_play.SelfPlay(
             copy.deepcopy(self.muzero_weights),
             self.Game(self.config.seed + self.config.num_actors),
             self.config,
         )
-        test_worker.continuous_self_play.remote(shared_storage_worker, None, True)
+        # test_worker.continuous_self_play.remote(shared_storage_worker, None, True)
+        test_worker.continuous_self_play(shared_storage_worker, None, True)
 
         # Write everything in TensorBoard
         writer = SummaryWriter(self.config.results_path)
@@ -145,10 +158,12 @@ class MuZero:
         )
         # Loop for updating the training performance
         counter = 0
-        info = ray.get(shared_storage_worker.get_info.remote())
+        # info = ray.get(shared_storage_worker.get_info.remote())
+        info = shared_storage_worker.get_info()
         try:
             while info["training_step"] < self.config.training_steps:
-                info = ray.get(shared_storage_worker.get_info.remote())
+                # info = ray.get(shared_storage_worker.get_info.remote())
+                info = shared_storage_worker.get_info()
                 writer.add_scalar(
                     "1.Total reward/1.Total reward", info["total_reward"], counter,
                 )
@@ -168,7 +183,8 @@ class MuZero:
                 )
                 writer.add_scalar(
                     "2.Workers/1.Self played games",
-                    ray.get(replay_buffer_worker.get_self_play_count.remote()),
+                    # ray.get(replay_buffer_worker.get_self_play_count.remote()),
+                    replay_buffer_worker.get_self_play_count(),
                     counter,
                 )
                 writer.add_scalar(
@@ -176,7 +192,8 @@ class MuZero:
                 )
                 writer.add_scalar(
                     "2.Workers/3.Self played games per training step ratio",
-                    ray.get(replay_buffer_worker.get_self_play_count.remote())
+                    # ray.get(replay_buffer_worker.get_self_play_count.remote())
+                    replay_buffer_worker.get_self_play_count()
                     / max(1, info["training_step"]),
                     counter,
                 )
@@ -192,7 +209,8 @@ class MuZero:
                         info["total_reward"],
                         info["training_step"],
                         self.config.training_steps,
-                        ray.get(replay_buffer_worker.get_self_play_count.remote()),
+                        # ray.get(replay_buffer_worker.get_self_play_count.remote()),
+                        replay_buffer_worker.get_self_play_count,
                         info["total_loss"],
                     ),
                     end="\r",
@@ -218,16 +236,18 @@ class MuZero:
             games, None let MuZero play all players turn by turn.
         """
         print("\nTesting...")
-        ray.init()
-        self_play_workers = self_play.SelfPlay.remote(
+        # ray.init()
+        # self_play_workers = self_play.SelfPlay.remote(
+        self_play_workers = self_play.SelfPlay(
             copy.deepcopy(self.muzero_weights),
             self.Game(numpy.random.randint(1000)),
             self.config,
         )
-        history = ray.get(
-            self_play_workers.play_game.remote(0, 0, render, opponent, muzero_player)
-        )
-        ray.shutdown()
+        # history = ray.get(
+        #     self_play_workers.play_game.remote(0, 0, render, opponent, muzero_player)
+        # )
+        history = self_play_workers.play_game(0, 0, render, opponent, muzero_player)
+        # ray.shutdown()
         return sum(history.reward_history)
 
     def load_model(self, weights_path=None, replay_buffer_path=None):

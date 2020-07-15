@@ -1,9 +1,9 @@
-import ray
+# import ray
 import torch
 import os
 
 
-@ray.remote
+# @ray.remote
 class SharedStorage:
     """
     Class which run in a dedicated thread to store the network weights and some information.
