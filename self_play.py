@@ -30,6 +30,11 @@ class SelfPlay:
         self.model.eval()
 
     def continuous_self_play(self, shared_storage, replay_buffer, test_mode=False):
+        render = False
+        if test_mode and hasattr(self.config, 'render_test_worker'):
+            render = self.config.render_test_worker
+        elif hasattr(self.config, 'render_training_workers'):
+            render = self.config.render_training_workers
         while True:
             self.model.set_weights(
                 # copy.deepcopy(ray.get(shared_storage.get_weights.remote()))
@@ -43,7 +48,7 @@ class SelfPlay:
                         trained_steps=shared_storage.get_info()["training_step"]
                     ),
                     self.config.temperature_threshold,
-                    False,
+                    render,
                     "self",
                     0,
                 )
@@ -56,7 +61,7 @@ class SelfPlay:
                 game_history = self.play_game(
                     0,
                     self.config.temperature_threshold,
-                    False,
+                    render,
                     "self" if len(self.config.players) == 1 else self.config.opponent,
                     self.config.muzero_player,
                 )
@@ -115,10 +120,22 @@ class SelfPlay:
                     time.sleep(0.5)
 
     def joe_self_play(self, shared_storage, replay_buffer, test_mode=False):
-        if not test_mode and self.config.ratio:
-            cur_ratio = replay_buffer.get_self_play_count() / max(1, shared_storage.get_info()["training_step"])
-            if  cur_ratio > self.config.ratio:
-                return
+        render = False
+        if test_mode and hasattr(self.config, 'render_test_worker'):
+            render = self.config.render_test_worker
+        elif hasattr(self.config, 'render_training_workers'):
+            render = self.config.render_training_workers
+
+        if not test_mode:
+            if self.config.ratio:
+                cur_ratio = replay_buffer.get_self_play_count() / max(1, shared_storage.get_info()["training_step"])
+                if  cur_ratio > self.config.ratio:
+                    return
+            # buffer_full = replay_buffer.get_total_samples() >= self.config.batch_size
+            # if self.config.ratio and buffer_full:
+            #     cur_ratio = replay_buffer.get_self_play_count() / max(1, shared_storage.get_info()["training_step"])
+            #     if  cur_ratio > self.config.ratio:
+            #         return
 
         self.model.set_weights(
             # copy.deepcopy(ray.get(shared_storage.get_weights.remote()))
@@ -132,7 +149,7 @@ class SelfPlay:
                     trained_steps=shared_storage.get_info()["training_step"]
                 ),
                 self.config.temperature_threshold,
-                True, # False,
+                render,
                 "self",
                 0,
             )
@@ -145,7 +162,7 @@ class SelfPlay:
             game_history = self.play_game(
                 0,
                 self.config.temperature_threshold,
-                True, # False,
+                render,
                 "self" if len(self.config.players) == 1 else self.config.opponent,
                 self.config.muzero_player,
             )

@@ -70,6 +70,9 @@ class ReplayBuffer:
     def get_self_play_count(self):
         return self.self_play_count
 
+    def get_total_samples(self):
+        return self.total_samples
+
     def get_buffer(self):
         return self.buffer
 

@@ -106,6 +106,7 @@ class Trainer:
     def joe_update_weights(self, replay_buffer, shared_storage_worker):
         # Wait for the replay buffer to be filled
         if replay_buffer.get_self_play_count() < 1:
+        # if replay_buffer.get_total_samples() < self.config.batch_size:
             return
         if self.config.ratio:
             cur_ratio = replay_buffer.get_self_play_count() / max(1, self.training_step)
