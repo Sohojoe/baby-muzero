@@ -103,6 +103,52 @@ class Trainer:
                 ):
                     time.sleep(0.5)
 
+    def joe_update_weights(self, replay_buffer, shared_storage_worker):
+        # Wait for the replay buffer to be filled
+        if replay_buffer.get_self_play_count() < 1:
+            return
+        if self.config.ratio:
+            cur_ratio = replay_buffer.get_self_play_count() / max(1, self.training_step)
+            if cur_ratio < self.config.ratio:
+                return
+
+        # index_batch, batch = 
+        #     ray.get(replay_buffer.get_batch.remote(self.model.get_weights()))
+        index_batch, batch = replay_buffer.get_batch(self.model.get_weights())
+        self.update_lr()
+        (
+            priorities,
+            total_loss,
+            value_loss,
+            reward_loss,
+            policy_loss,
+        ) = self.update_weights(batch)
+
+        if self.config.PER:
+            # Save new priorities in the replay buffer (See https://arxiv.org/abs/1803.00933)
+            # replay_buffer.update_priorities.remote(priorities, index_batch)
+            replay_buffer.update_priorities(priorities, index_batch)
+
+        # Save to the shared storage
+        # if self.training_step % self.config.checkpoint_interval == 0:
+        #     shared_storage_worker.set_weights.remote(self.model.get_weights())
+        if self.training_step % self.config.checkpoint_interval == 0:
+            shared_storage_worker.set_weights(self.model.get_weights())
+        # shared_storage_worker.set_info.remote("training_step", self.training_step)
+        shared_storage_worker.set_info("training_step", self.training_step)
+        # shared_storage_worker.set_info.remote(
+        shared_storage_worker.set_info(
+            "lr", self.optimizer.param_groups[0]["lr"]
+        )
+        # shared_storage_worker.set_info.remote("total_loss", total_loss)
+        # shared_storage_worker.set_info.remote("value_loss", value_loss)
+        # shared_storage_worker.set_info.remote("reward_loss", reward_loss)
+        # shared_storage_worker.set_info.remote("policy_loss", policy_loss)
+        shared_storage_worker.set_info("total_loss", total_loss)
+        shared_storage_worker.set_info("value_loss", value_loss)
+        shared_storage_worker.set_info("reward_loss", reward_loss)
+        shared_storage_worker.set_info("policy_loss", policy_loss)               
+
     def update_weights(self, batch):
         """
         Perform one training step.

@@ -92,21 +92,36 @@ class MuZero:
             for seed in range(self.config.num_actors)
         ]
 
-        # Launch workers
-        [
-            # self_play_worker.continuous_self_play.remote(
-            self_play_worker.continuous_self_play(
-                shared_storage_worker, replay_buffer_worker
-            )
-            for self_play_worker in self_play_workers
-        ]
-        # training_worker.continuous_update_weights.remote(
-        training_worker.continuous_update_weights(
-            replay_buffer_worker, shared_storage_worker
-        )
+        # # Launch workers
+        # [
+        #     # self_play_worker.continuous_self_play.remote(
+        #     self_play_worker.continuous_self_play(
+        #         shared_storage_worker, replay_buffer_worker
+        #     )
+        #     for self_play_worker in self_play_workers
+        # ]
+        # # training_worker.continuous_update_weights.remote(
+        # training_worker.continuous_update_weights(
+        #     replay_buffer_worker, shared_storage_worker
+        # )
+        # # Save performance in TensorBoard
+        # self._logging_loop(shared_storage_worker, replay_buffer_worker)
 
-        # Save performance in TensorBoard
-        self._logging_loop(shared_storage_worker, replay_buffer_worker)
+        while True:
+            # play a game
+            [
+                self_play_worker.joe_self_play(
+                    shared_storage_worker, replay_buffer_worker
+                )
+                for self_play_worker in self_play_workers
+            ]
+            training_worker.joe_update_weights(
+                replay_buffer_worker, shared_storage_worker
+            )
+            self._joe_logging(shared_storage_worker, replay_buffer_worker)
+            info = shared_storage_worker.get_info()
+            if info["training_step"] >= self.config.training_steps:
+                break
 
         # self.muzero_weights = ray.get(shared_storage_worker.get_weights.remote())
         self.muzero_weights = shared_storage_worker.get_weights()
@@ -221,6 +236,100 @@ class MuZero:
             # Comment the line below to be able to stop the training but keep running
             # raise err
             pass
+
+    def _joe_logging(self, shared_storage_worker, replay_buffer_worker):
+        """
+        Keep track of the training performance
+        """
+        # Launch the test worker to get performance metrics
+        # test_worker = self_play.SelfPlay(
+        #     copy.deepcopy(self.muzero_weights),
+        #     self.Game(self.config.seed + self.config.num_actors),
+        #     self.config,
+        # )
+        # test_worker.continuous_self_play(shared_storage_worker, None, True)
+
+        if not hasattr(self, '_has_logged_one'):
+            # Write everything in TensorBoard
+            writer = SummaryWriter(self.config.results_path)
+
+            print(
+                "\nTraining...\nRun tensorboard --logdir ./results and go to http://localhost:6006/ to see in real time the training performance.\n"
+            )
+
+            # Save hyperparameters to TensorBoard
+            hp_table = [
+                "| {} | {} |".format(key, value)
+                for key, value in self.config.__dict__.items()
+            ]
+            writer.add_text(
+                "Hyperparameters",
+                "| Parameter | Value |\n|-------|-------|\n" + "\n".join(hp_table),
+            )
+            # Save model representation
+            writer.add_text(
+                "Model summary",
+                str(models.MuZeroNetwork(self.config)).replace("\n", " \n\n"),
+            )
+            self._has_logged_one = True
+            self._writer = writer
+            self._counter = 0
+        else:
+            writer = self._writer
+            counter = self._counter
+            info = shared_storage_worker.get_info()
+            writer.add_scalar(
+                "1.Total reward/1.Total reward", info["total_reward"], counter,
+            )
+            writer.add_scalar(
+                "1.Total reward/2.Mean value", info["mean_value"], counter,
+            )
+            writer.add_scalar(
+                "1.Total reward/3.Episode length", info["episode_length"], counter,
+            )
+            writer.add_scalar(
+                "1.Total reward/4.MuZero reward", info["muzero_reward"], counter,
+            )
+            writer.add_scalar(
+                "1.Total reward/5.Opponent reward",
+                info["opponent_reward"],
+                counter,
+            )
+            writer.add_scalar(
+                "2.Workers/1.Self played games",
+                # ray.get(replay_buffer_worker.get_self_play_count.remote()),
+                replay_buffer_worker.get_self_play_count(),
+                counter,
+            )
+            writer.add_scalar(
+                "2.Workers/2.Training steps", info["training_step"], counter
+            )
+            writer.add_scalar(
+                "2.Workers/3.Self played games per training step ratio",
+                # ray.get(replay_buffer_worker.get_self_play_count.remote())
+                replay_buffer_worker.get_self_play_count()
+                / max(1, info["training_step"]),
+                counter,
+            )
+            writer.add_scalar("2.Workers/4.Learning rate", info["lr"], counter)
+            writer.add_scalar(
+                "3.Loss/1.Total weighted loss", info["total_loss"], counter
+            )
+            writer.add_scalar("3.Loss/Value loss", info["value_loss"], counter)
+            writer.add_scalar("3.Loss/Reward loss", info["reward_loss"], counter)
+            writer.add_scalar("3.Loss/Policy loss", info["policy_loss"], counter)
+            print(
+                "Last test reward: {:.2f}. Training step: {}/{}. Played games: {}. Loss: {:.2f}".format(
+                    info["total_reward"],
+                    info["training_step"],
+                    self.config.training_steps,
+                    # ray.get(replay_buffer_worker.get_self_play_count.remote()),
+                    replay_buffer_worker.get_self_play_count(),
+                    info["total_loss"],
+                ),
+                end="\r",
+            )
+            self._counter += 1
 
     def test(self, render, opponent, muzero_player):
         """
