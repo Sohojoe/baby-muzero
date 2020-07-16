@@ -115,10 +115,11 @@ class MuZero:
                 )
                 for self_play_worker in self_play_workers
             ]
+            self._joe_logging(shared_storage_worker, replay_buffer_worker)
             training_worker.joe_update_weights(
                 replay_buffer_worker, shared_storage_worker
             )
-            self._joe_logging(shared_storage_worker, replay_buffer_worker)
+            # self._joe_logging(shared_storage_worker, replay_buffer_worker)
             info = shared_storage_worker.get_info()
             if info["training_step"] >= self.config.training_steps:
                 break
@@ -241,15 +242,15 @@ class MuZero:
         """
         Keep track of the training performance
         """
-        # Launch the test worker to get performance metrics
-        # test_worker = self_play.SelfPlay(
-        #     copy.deepcopy(self.muzero_weights),
-        #     self.Game(self.config.seed + self.config.num_actors),
-        #     self.config,
-        # )
-        # test_worker.continuous_self_play(shared_storage_worker, None, True)
 
         if not hasattr(self, '_has_logged_one'):
+            # Launch the test worker to get performance metrics
+            self._test_worker = self_play.SelfPlay(
+                copy.deepcopy(self.muzero_weights),
+                self.Game(self.config.seed + self.config.num_actors),
+                self.config,
+            )
+
             # Write everything in TensorBoard
             writer = SummaryWriter(self.config.results_path)
 
@@ -274,62 +275,69 @@ class MuZero:
             self._has_logged_one = True
             self._writer = writer
             self._counter = 0
-        else:
-            writer = self._writer
-            counter = self._counter
-            info = shared_storage_worker.get_info()
-            writer.add_scalar(
-                "1.Total reward/1.Total reward", info["total_reward"], counter,
-            )
-            writer.add_scalar(
-                "1.Total reward/2.Mean value", info["mean_value"], counter,
-            )
-            writer.add_scalar(
-                "1.Total reward/3.Episode length", info["episode_length"], counter,
-            )
-            writer.add_scalar(
-                "1.Total reward/4.MuZero reward", info["muzero_reward"], counter,
-            )
-            writer.add_scalar(
-                "1.Total reward/5.Opponent reward",
-                info["opponent_reward"],
-                counter,
-            )
-            writer.add_scalar(
-                "2.Workers/1.Self played games",
+            return
+
+        info = shared_storage_worker.get_info()
+        writer = self._writer
+        counter = info['training_step']
+        if info['training_step'] % self.config.checkpoint_interval != 0:
+            return
+
+        games_played = replay_buffer_worker.get_self_play_count()
+        if games_played % 3 == 0 and games_played > 0:
+            self._test_worker.joe_self_play(shared_storage_worker, replay_buffer_worker, True)
+
+        writer.add_scalar(
+            "1.Total reward/1.Total reward", info["total_reward"], counter,
+        )
+        writer.add_scalar(
+            "1.Total reward/2.Mean value", info["mean_value"], counter,
+        )
+        writer.add_scalar(
+            "1.Total reward/3.Episode length", info["episode_length"], counter,
+        )
+        writer.add_scalar(
+            "1.Total reward/4.MuZero reward", info["muzero_reward"], counter,
+        )
+        writer.add_scalar(
+            "1.Total reward/5.Opponent reward",
+            info["opponent_reward"],
+            counter,
+        )
+        writer.add_scalar(
+            "2.Workers/1.Self played games",
+            # ray.get(replay_buffer_worker.get_self_play_count.remote()),
+            replay_buffer_worker.get_self_play_count(),
+            counter,
+        )
+        writer.add_scalar(
+            "2.Workers/2.Training steps", info["training_step"], counter
+        )
+        writer.add_scalar(
+            "2.Workers/3.Self played games per training step ratio",
+            # ray.get(replay_buffer_worker.get_self_play_count.remote())
+            replay_buffer_worker.get_self_play_count()
+            / max(1, info["training_step"]),
+            counter,
+        )
+        writer.add_scalar("2.Workers/4.Learning rate", info["lr"], counter)
+        writer.add_scalar(
+            "3.Loss/1.Total weighted loss", info["total_loss"], counter
+        )
+        writer.add_scalar("3.Loss/Value loss", info["value_loss"], counter)
+        writer.add_scalar("3.Loss/Reward loss", info["reward_loss"], counter)
+        writer.add_scalar("3.Loss/Policy loss", info["policy_loss"], counter)
+        print(
+            "Last test reward: {:.2f}. Training step: {}/{}. Played games: {}. Loss: {:.2f}".format(
+                info["total_reward"],
+                info["training_step"],
+                self.config.training_steps,
                 # ray.get(replay_buffer_worker.get_self_play_count.remote()),
                 replay_buffer_worker.get_self_play_count(),
-                counter,
-            )
-            writer.add_scalar(
-                "2.Workers/2.Training steps", info["training_step"], counter
-            )
-            writer.add_scalar(
-                "2.Workers/3.Self played games per training step ratio",
-                # ray.get(replay_buffer_worker.get_self_play_count.remote())
-                replay_buffer_worker.get_self_play_count()
-                / max(1, info["training_step"]),
-                counter,
-            )
-            writer.add_scalar("2.Workers/4.Learning rate", info["lr"], counter)
-            writer.add_scalar(
-                "3.Loss/1.Total weighted loss", info["total_loss"], counter
-            )
-            writer.add_scalar("3.Loss/Value loss", info["value_loss"], counter)
-            writer.add_scalar("3.Loss/Reward loss", info["reward_loss"], counter)
-            writer.add_scalar("3.Loss/Policy loss", info["policy_loss"], counter)
-            print(
-                "Last test reward: {:.2f}. Training step: {}/{}. Played games: {}. Loss: {:.2f}".format(
-                    info["total_reward"],
-                    info["training_step"],
-                    self.config.training_steps,
-                    # ray.get(replay_buffer_worker.get_self_play_count.remote()),
-                    replay_buffer_worker.get_self_play_count(),
-                    info["total_loss"],
-                ),
-                end="\r",
-            )
-            self._counter += 1
+                info["total_loss"],
+            ),
+            end="\r",
+        )
 
     def test(self, render, opponent, muzero_player):
         """
