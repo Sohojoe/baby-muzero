@@ -119,7 +119,6 @@ class MuZero:
             training_worker.joe_update_weights(
                 replay_buffer_worker, shared_storage_worker
             )
-            # self._joe_logging(shared_storage_worker, replay_buffer_worker)
             info = shared_storage_worker.get_info()
             if info["training_step"] >= self.config.training_steps:
                 break
@@ -275,6 +274,7 @@ class MuZero:
             self._has_logged_one = True
             self._writer = writer
             self._counter = 0
+            self._last_game_played = 0
             return
 
         info = shared_storage_worker.get_info()
@@ -284,8 +284,10 @@ class MuZero:
             return
 
         games_played = replay_buffer_worker.get_self_play_count()
-        if games_played % 3 == 0 and games_played > 0:
-            self._test_worker.joe_self_play(shared_storage_worker, replay_buffer_worker, True)
+        if games_played % 3 == 0 and games_played != self._last_game_played:
+            self._test_worker.joe_self_play(shared_storage_worker, None, True)
+            # self._test_worker.joe_self_play(shared_storage_worker, replay_buffer_worker, True)
+            self._last_game_played = games_played
 
         writer.add_scalar(
             "1.Total reward/1.Total reward", info["total_reward"], counter,

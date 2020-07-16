@@ -150,6 +150,9 @@ class SelfPlay:
                 self.config.muzero_player,
             )
 
+            if replay_buffer is not None:
+                replay_buffer.save_game(game_history)
+
             # Save to the shared storage
             # shared_storage.set_info.remote(
             shared_storage.set_info(
